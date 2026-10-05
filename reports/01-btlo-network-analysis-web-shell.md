@@ -44,32 +44,32 @@ All times are UTC and all events took place on 2021-02-07. Times come from packe
 
 Statistics → Conversations showed one pair of hosts dominating the capture: `10.251.96.4` ↔ `10.251.96.5` with 15,883 of the 17,508 packets. On the TCP tab there were 1,284 conversations, most of them exactly two packets long, always from source port 41675 to a different destination port each time. That pattern of "one knock, one reply, move on" is how a port scan looks.
 
-!\[IPv4 conversations](../images/webshell-01-ipv4-conversations.png)
-!\[TCP conversations](../images/webshell-02-tcp-conversations.png)
+!\[IPv4 conversations   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-01-ipv4-conversations.png)
+!\[TCP conversations   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-02-tcp-conversations.png)
 
 ### 4.2 Scan type and range
 
 Filtering for SYN-only packets from the suspect (`ip.src == 10.251.96.4 \&\& tcp.flags.syn == 1 \&\& tcp.flags.ack == 0`) showed the scan knocking on ports in rapid succession. Restricting to the scan's source port and sorting the Conversations window by destination port gave a lowest port of **1** and a highest of **1024**, a total of 1,024 ports.
 
-!\[SYN scan filter](../images/webshell-03-syn-scan-filter.png)
-!\[Lowest port](../images/webshell-06-lowest-port.png)
-!\[Highest port](../images/webshell-07-highest-port.png)
+!\[SYN scan filter   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-03-syn-scan-filter.png)
+!\[Lowest port   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-06-lowest-port.png)
+!\[Highest port   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-07-highest-port.png)
 
 Filtering for SYN-ACK replies from the target (`ip.src == 10.251.96.5 \&\& tcp.flags.syn == 1 \&\& tcp.flags.ack == 1`) showed ports **80** and **22** responding to the scanner.
 
-!\[Open ports](../images/webshell-04-open-ports.png)
+!\[Open ports   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-04-open-ports.png)
 
 Following the exchange on port 80 (`tcp.port == 41675 \&\& tcp.port == 80`) shows SYN, then SYN-ACK from the target, then **RST** from the scanner. The scanner never completes the handshake, so this is a **TCP SYN (half-open) scan**. The window size of 1024 is commonly associated with Nmap, but the capture alone does not prove which tool was used.
 
-!\[SYN, SYN-ACK, RST handshake](../images/webshell-05-handshake-port80.png)
+!\[SYN, SYN-ACK, RST handshake   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-05-handshake-port80.png)
 
 ### 4.3 Web enumeration and injection testing
 
 Filtering for the suspect's HTTP requests (`http.request \&\& ip.src == 10.251.96.4`) returned 4,794 requests. Only 32 carried a browser User-Agent (Firefox 68.0 on Linux) and looked like manual browsing. Excluding Firefox left 4,762 requests, nearly all with the User-Agent **gobuster/3.0.1**, which guesses hidden paths from a word list. Excluding gobuster as well left 147 requests with the User-Agent **sqlmap/1.4.7#stable**, including a POST with a `UNION ALL` SQL injection payload.
 
-!\[Browser User-Agent](../images/webshell-08-user-agents.png)
-!\[gobuster requests](../images/webshell-09-non-browser-agents.png)
-!\[sqlmap requests](../images/webshell-10-remaining-tools.png)
+!\[Browser User-Agent   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-08-user-agents.png)
+!\[gobuster requests   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-09-non-browser-agents.png)
+!\[sqlmap requests   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-10-remaining-tools.png)
 
 I did not determine whether the sqlmap testing succeeded.
 
@@ -77,8 +77,8 @@ I did not determine whether the sqlmap testing succeeded.
 
 A Follow HTTP Stream on the upload request shows a `multipart/form-data` POST to `/upload.php` with `Referer: http://10.251.96.5/editprofile.php`. So the attacker used the profile-picture upload form on `editprofile.php`, which is processed by `upload.php`. The uploaded file is named **`dbfunctions.php`** and is sent as `Content-Type: application/x-php`. The server accepted it with `200 OK` and the message "The file dbfunctions.php has been uploaded." The request carried a PHP session cookie, but this capture does not show how that session was obtained.
 
-!\[Upload stream](../images/webshell-11-upload-stream.png)
-!\[Upload response](../images/webshell-12-upload-response.png)
+!\[Upload stream   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-11-upload-stream.png)
+!\[Upload response   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-12-upload-response.png)
 
 ### 4.5 The web shell
 
@@ -96,17 +96,17 @@ Filtering for requests to the shell (`http.request.uri contains "dbfunctions.php
 
 This is a **reverse shell**. The full command is visible in the screenshot below.
 
-!\[Shell commands](../images/webshell-13-shell-commands.png)
+!\[Shell commands   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-13-shell-commands.png)
 
 About 70 milliseconds later, the web server (`10.251.96.5`) opens a TCP connection **out to `10.251.96.4` on port 4422** (SYN, then SYN-ACK). The victim initiated the connection, which is what makes it a **reverse shell**. Port 4422 is not a standard service port.
 
-!\[Reverse shell connection](../images/webshell-15-reverse-shell-connection.png)
+!\[Reverse shell connection   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-15-reverse-shell-connection.png)
 
 ### 4.7 Attacker activity in the shell
 
 Following the TCP stream for port 4422 shows the attacker's session. The prompt reveals the host name **`bob-appserver`**, the user **`www-data`**, and the starting folder `/var/www/html/uploads`. The attacker ran `bash -i`, `whoami`, moved up the directory tree with `cd ..`, ran `ls`, upgraded the terminal with a Python `pty.spawn` call, and listed the root of the filesystem.
 
-!\[Shell session](../images/webshell-16-shell-session.png)
+!\[Shell session   ](https://raw.githubusercontent.com/me-gurpreetsaini/incident-investigation-writeups/main/images/webshell-16-shell-session.png)
 
 ## 5\. Indicators of Compromise (IOCs)
 
